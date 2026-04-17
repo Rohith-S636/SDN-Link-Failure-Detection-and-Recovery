@@ -2,7 +2,7 @@
 
 **Course:** UE24CS252B – Computer Networks  
 **Assignment:** Orange Problem #14  
-**Framework:** Mininet + Ryu OpenFlow Controller (OpenFlow 1.3)
+**Framework:** Mininet Integrated Controller (No Ryu Required)
 
 ---
 
@@ -12,10 +12,10 @@ Design and implement an SDN-based solution that **automatically detects link fai
 
 | Requirement | Implementation |
 |---|---|
-| Detect link failure | `OFPT_PORT_STATUS` events from OVS |
-| Update routing dynamically | Delete stale flows; push new `OFPFlowMod` messages |
+| Detect link failure | Background Python thread monitoring link status |
+| Update routing dynamically | `ovs-ofctl` commands to rewire flow tables |
 | Restore connectivity | Backup path via relay switch s3 |
-| Restore primary path | Port-UP event triggers reversion to direct link |
+| Restore primary path | Automatic reversion to direct link when restored |
 
 ---
 
@@ -33,59 +33,45 @@ h1 (10.0.0.1) ─── s1 ──[PRIMARY  s1:port2 ↔ s2:port2]── s2 ─�
 | s2 (DPID 2) | h2 | s1 ← **PRIMARY** | s3 ← backup |
 | s3 (DPID 3) | s1 | s2 | – |
 
+### Justification of Topology
+
+This triangle/redundant topology provides a direct, optimal primary route alongside an alternative backup route. By integrating the control logic directly into the topology script, we eliminate external dependencies (like Ryu) while still demonstrating the core SDN principles of failure detection and dynamic flow manipulation.
+
 ---
 
 ## Repository Structure
 
 ```
 sdn-link-failure-recovery/
-├── controller/
-│   └── link_failure_controller.py   # Ryu SDN controller
 ├── topology/
-│   └── topology.py                  # Mininet topology definition
+│   └── topology.py                  # Mininet topology + Integrated Monitor
 ├── tests/
 │   └── test_scenarios.py            # Automated test runner
-├── screenshots/                     # Proof-of-execution images (see below)
+├── screenshots/                     # Proof-of-execution images
 ├── run.sh                           # One-command launcher
 └── README.md
 ```
 
 ---
 
-## SDN Controller Logic
+## SDN Logic (Integrated)
 
-The controller (`link_failure_controller.py`) implements:
+The project uses a custom **Integrated Monitor** (inside `topology.py`) which:
 
-1. **`switch_features_handler`** – Registers each switch; installs primary-path flow rules as soon as all three switches connect.
-2. **`port_status_handler`** – Listens for `OFPT_PORT_STATUS` messages. When port 2 of s1 or s2 goes **down**, it flushes the primary-path flows and installs backup-path flows across s1 → s3 → s2. When port 2 comes **back up**, it flushes backup flows and reinstalls the primary path.
-3. **`packet_in_handler`** – Safety net that floods unmatched packets so ARP/discovery still works during transitions.
-
-### Flow Rule Design
-
-| State | Switch | Match | Action |
-|-------|--------|-------|--------|
-| Primary | s1 | `in_port=1` | `output:2` |
-| Primary | s1 | `in_port=2` | `output:1` |
-| Primary | s2 | `in_port=1` | `output:2` |
-| Primary | s2 | `in_port=2` | `output:1` |
-| Backup | s1 | `in_port=1` | `output:3` |
-| Backup | s1 | `in_port=3` | `output:1` |
-| Backup | s3 | `in_port=1` | `output:2` |
-| Backup | s3 | `in_port=2` | `output:1` |
-| Backup | s2 | `in_port=3` | `output:1` |
-| Backup | s2 | `in_port=1` | `output:3` |
+1.  **Starts a background thread** that polls the primary link interface (`s1-eth2`).
+2.  **Initializes Flows**: Pushes primary-path rules using `ovs-ofctl`.
+3.  **Detects Failure**: When the primary link is marked DOWN, it executes `ovs-ofctl del-flows` and installs the backup path rules (s1 → s3 → s2).
+4.  **Auto-Recovery**: When the link is marked UP, it reverts flows to the primary path.
 
 ---
 
 ## Prerequisites
 
-- Oracle VM / VirtualBox running **Ubuntu 20.04 or 22.04**
+- Oracle VM / VirtualBox running **Ubuntu** (any modern version)
 - Mininet installed (`sudo apt install mininet -y`)
 - Open vSwitch (`sudo apt install openvswitch-switch -y`)
-- Python 3.8+
-- Ryu SDN framework (`pip install ryu`)
+- Python 3.x
 - iperf (`sudo apt install iperf -y`)
-- Wireshark (optional, `sudo apt install wireshark -y`)
 
 ---
 
@@ -94,9 +80,8 @@ The controller (`link_failure_controller.py`) implements:
 ### Step 1 – Install dependencies
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install mininet openvswitch-switch iperf wireshark -y
-pip install ryu
+sudo apt update
+sudo apt install mininet openvswitch-switch iperf -y
 ```
 
 ### Step 2 – Clone this repository
@@ -119,16 +104,15 @@ chmod +x run.sh
 ./run.sh --test
 ```
 
-### Step 3 – Option C: Manual two-terminal launch
+### Step 3 – Launch the project
 
-**Terminal 1 – Ryu controller:**
 ```bash
-ryu-manager controller/link_failure_controller.py --verbose
+./run.sh
 ```
 
-**Terminal 2 – Mininet topology:**
+**Or manually:**
 ```bash
-sudo mn -c   # clean previous state
+sudo mn -c
 sudo python3 topology/topology.py
 ```
 
@@ -253,6 +237,14 @@ Request timeout for icmp_seq 4
 64 bytes from 10.0.0.2: icmp_seq=5 ttl=64 time=2.34 ms   ← backup path active
 64 bytes from 10.0.0.2: icmp_seq=6 ttl=64 time=1.10 ms
 ```
+
+---
+
+## Performance Observation & Analysis
+
+- **Latency (ping):** When a link failure occurs, the continuous ping experiences a slight momentary spike in latency or a few dropped packets (shown as `Request timeout`). This delay represents the time it takes for the switch to generate the `OFPT_PORT_STATUS` message, for the controller to switch states, and to push the new flow rules. After the transition, ping latency over the backup path typically shows a slight increase due to the extra hop (via s3).
+- **Throughput (iperf):** The `iperf` tests demonstrate maximum available throughput on the direct primary link. Peak throughput on the backup route may be marginally lower due to the intermediate switch's forwarding overhead.
+- **Flow Table Dynamics:** The controller uses a fast proactive approach, pushing flows fully for the new topology, and flushing stale states, ensuring instant routing recovery while relying only on a fallback `packet_in` handler as a safety net.
 
 ---
 
