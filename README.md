@@ -1,7 +1,6 @@
 # SDN Link Failure Detection and Recovery
 
 **Course:** UE24CS252B – Computer Networks  
-**Assignment:** Orange Problem #14  
 **Framework:** Mininet + Ryu OpenFlow Controller (OpenFlow 1.3)
 
 ---
