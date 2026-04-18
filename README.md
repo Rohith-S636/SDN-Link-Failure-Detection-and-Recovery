@@ -306,11 +306,3 @@ Request timeout for icmp_seq 4
 | `ImportError: No module named ryu` | Use same Python as Mininet: `sudo pip3 install ryu` |
 
 ---
-
-## References
-
-1. Ryu SDN Framework – https://ryu.readthedocs.io/en/latest/
-2. OpenFlow 1.3 Specification – https://opennetworking.org/software-defined-standards/specifications/
-3. Mininet Walkthrough – https://mininet.org/walkthrough/
-4. OVS OpenFlow Tutorial – https://docs.openvswitch.org/en/latest/tutorials/
-5. Mininet Python API – https://mininet.org/api/
