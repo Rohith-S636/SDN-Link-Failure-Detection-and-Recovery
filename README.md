@@ -64,6 +64,9 @@ The controller (`link_failure_controller.py`) implements:
 2. **`port_status_handler`** – Listens for `OFPT_PORT_STATUS` messages. When port 2 of s1 or s2 goes **down**, it flushes the primary-path flows and installs backup-path flows across s1 → s3 → s2. When port 2 comes **back up**, it flushes backup flows and reinstalls the primary path.
 3. **`packet_in_handler`** – Safety net that floods unmatched packets so ARP/discovery still works during transitions.
 
+![Controller Startup](./screenshots/02_controller_primary_path.png)
+*Figure 0: Controller successfully initialized and primary path flows installed.* [^2]
+
 ### Flow Rule Design
 
 | State | Switch | Match | Action |
@@ -106,8 +109,8 @@ pip install ryu
 ### Step 2 – Clone this repository
 
 ```bash
-git clone https://github.com/<YOUR-USERNAME>/sdn-link-failure-recovery.git
-cd sdn-link-failure-recovery
+git clone https://github.com/Rohith-S636/SDN-Link-Failure-Detection-and-Recovery.git
+cd SDN-Link-Failure-Detection-and-Recovery
 chmod +x run.sh
 ```
 
@@ -152,6 +155,16 @@ mininet> sh ovs-ofctl dump-flows s2
 
 **Expected:** 0 % packet loss; `s1 port2 → s2` and `s2 port2 → s1` rules visible in flow tables.
 
+![Topology Start](./screenshots/01_topology_start.png)
+*Figure 1: Mininet topology initialization.* [^1]
+
+![Pingall Primary](./screenshots/03_pingall_primary.png)
+*Figure 2: Successful pingall during normal operation.* [^3]
+
+![Flow Table Switch 1](./screenshots/04_flow_table_primary_s1.png)
+![Flow Table Switch 2](./screenshots/05_flow_table_primary_s2.png)
+*Figures 2a, 2b: Primary flow entries on s1 and s2.* [^4] [^5]
+
 ---
 
 ### Scenario 2 – Link Failure (Allowed → Blocked / Rerouted)
@@ -175,6 +188,15 @@ mininet> h1 ping -c 10 h2
 
 **Expected:** Brief packet loss during detection; then 0 % loss via backup path (s1 → s3 → s2).
 
+![Link Down Command](./screenshots/06_link_down_command.png)
+*Figure 3: Simulating link failure between s1 and s2.* [^6]
+
+![Controller Failover](./screenshots/07_controller_failover.png)
+*Figure 4: Controller logs showing failover to backup path.* [^7]
+
+![Link Down Flow Table](./screenshots/Link%20down%20flow%20table.png)
+*Figure 5: Switch flow tables updated to use the backup path.* [^8]
+
 ---
 
 ### Scenario 3 – Link Recovery (Restore Primary)
@@ -188,6 +210,12 @@ mininet> h1 ping -c 10 h2
 ```
 
 **Expected:** 0 % packet loss; flow tables revert to primary-path rules.
+
+![Link Recovery](./screenshots/Link%20up%20flow%20table.png)
+*Figure 6: Flow table updated after link recovery.* [^9]
+
+![Final Pingall](./screenshots/pingall.png)
+*Figure 6a: Final connectivity check (pingall).* [^11]
 
 ---
 
@@ -203,6 +231,9 @@ mininet> link s1 s2 down
 mininet> h1 iperf -c h2 -t 10
 mininet> link s1 s2 up
 ```
+
+![iperf Results](./screenshots/iperf.png)
+*Figure 7: iperf throughput measurement.* [^10]
 
 ---
 
@@ -281,16 +312,24 @@ Request timeout for icmp_seq 4
 | 5 | `05_flow_table_primary_s2.png` | `ovs-ofctl dump-flows s2` – primary rules |
 | 6 | `06_link_down_command.png` | `link s1 s2 down` command executed in CLI |
 | 7 | `07_controller_failover.png` | Ryu log showing backup path installed |
-| 8 | `08_ping_during_failover.png` | Ping output showing brief loss then recovery |
-| 9 | `09_flow_table_backup_s1.png` | `ovs-ofctl dump-flows s1` – backup rules (port 3) |
-| 10 | `10_flow_table_backup_s2.png` | `ovs-ofctl dump-flows s2` – backup rules (port 3) |
-| 11 | `11_flow_table_backup_s3.png` | `ovs-ofctl dump-flows s3` – s3 now forwarding |
-| 12 | `12_ping_backup_path.png` | Direct ping – 0 % packet loss via backup |
-| 13 | `13_link_up_recovery.png` | `link s1 s2 up` + controller log reverting to primary |
-| 14 | `14_ping_after_recovery.png` | Ping after recovery – 0 % packet loss |
-| 15 | `15_iperf_primary.png` | iperf throughput on primary path |
-| 16 | `16_iperf_backup.png` | iperf throughput on backup path (comparison) |
-| 17 | `17_wireshark_failover.png` | Wireshark showing traffic shift from s1-eth2 → s1-eth3 |
+| 8 | `Link down flow table.png` | Flow table showing traffic routed to backup (port 3) |
+| 9 | `Link up flow table.png` | Flow table after link recovery (reverted to port 2) |
+| 10 | `iperf.png` | iperf throughput measurement on the network |
+| 11 | `pingall.png` | Connectivity verification across all hosts |
+
+### Footnotes for Screenshots
+
+[^1]: Initial topology setup showing h1, h2, s1, s2, and s3 initialization.
+[^2]: Controller log indicating successful installation of flows for the direct path s1-s2.
+[^3]: Verification that all hosts can reach each other before any link failure occurs.
+[^4]: Snapshot of Switch 1 flow table containing rules for port 2 (primary path).
+[^5]: Snapshot of Switch 2 flow table containing rules for port 2 (primary path).
+[^6]: Manual triggering of link failure to test the controller's detection mechanism.
+[^7]: Controller detecting `PORT_STATUS` change and pushing backup flows via s3.
+[^8]: Flow table capture demonstrating that packets are now being forwarded through port 3.
+[^9]: Flow table state once the primary link is restored and flows are reverted.
+[^10]: Network bandwidth performance captured using the iperf tool.
+[^11]: Final connectivity check ensuring the system is fully operational.
 
 ---
 
